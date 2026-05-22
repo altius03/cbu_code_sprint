@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cbu_code_sprint.editor import INDENT_UNIT, indentation_for_newline, is_submission_complete
 from cbu_code_sprint.locking import SingleInstanceError, SingleInstanceLock
 from cbu_code_sprint.paths import AppPaths
 from cbu_code_sprint.privacy import mask_name, normalize_phone
@@ -85,6 +86,27 @@ class UtilityTests(unittest.TestCase):
 
             with SingleInstanceLock(lock_path):
                 self.assertTrue(lock_path.exists())
+
+    def test_submission_accepts_exact_text_and_one_final_newline(self) -> None:
+        expected = "def hello():\n    print('hi')"
+
+        self.assertTrue(is_submission_complete(expected, expected))
+        self.assertTrue(is_submission_complete(expected, expected + "\n"))
+        self.assertTrue(is_submission_complete(expected, expected.replace("\n", "\r\n")))
+        self.assertFalse(is_submission_complete(expected, expected + "    \n"))
+        self.assertFalse(is_submission_complete(expected, expected.replace("hi", "bye")))
+
+    def test_editor_auto_indent_matches_common_code_blocks(self) -> None:
+        self.assertEqual(indentation_for_newline("if ok:", len("if ok:")), INDENT_UNIT)
+        self.assertEqual(
+            indentation_for_newline("    if ok:", len("    if ok:")),
+            INDENT_UNIT * 2,
+        )
+        self.assertEqual(
+            indentation_for_newline("    print(ok)", len("    print(ok)")),
+            INDENT_UNIT,
+        )
+        self.assertEqual(indentation_for_newline("int main() {", len("int main() {")), INDENT_UNIT)
 
 
 class DatabaseTests(unittest.TestCase):

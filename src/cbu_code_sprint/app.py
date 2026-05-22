@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QFont, QKeySequence, QPixmap, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -34,6 +34,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .editor import (
+    INDENT_UNIT,
+    is_submission_complete,
+    normalize_newlines,
+    submission_text_for_comparison,
+    indentation_for_newline,
+)
 from .locking import SingleInstanceError, SingleInstanceLock
 from .paths import AppPaths
 from .privacy import mask_name
@@ -48,15 +55,57 @@ CODE_FONT = QFont("Menlo", 14)
 class NoPastePlainTextEdit(QPlainTextEdit):
     backspace_pressed = Signal()
     paste_blocked = Signal()
+    submit_requested = Signal()
 
     def keyPressEvent(self, event: Any) -> None:  # noqa: N802 - Qt override name
         if event.matches(QKeySequence.StandardKey.Paste):
             self.paste_blocked.emit()
             event.ignore()
             return
+        if event.key() == Qt.Key.Key_Tab:
+            self.insertPlainText(INDENT_UNIT)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Backtab:
+            self._unindent_current_line()
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.submit_requested.emit()
+            else:
+                self._insert_newline_with_indent()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Backspace:
             self.backspace_pressed.emit()
         super().keyPressEvent(event)
+
+    def _insert_newline_with_indent(self) -> None:
+        cursor = self.textCursor()
+        indent = indentation_for_newline(self.toPlainText(), cursor.position())
+        cursor.insertText("\n" + indent)
+        self.setTextCursor(cursor)
+
+    def _unindent_current_line(self) -> None:
+        cursor = self.textCursor()
+        position = cursor.position()
+        text = self.toPlainText()
+        line_start = text.rfind("\n", 0, position) + 1
+        removable = 0
+        for index in range(min(len(INDENT_UNIT), max(0, len(text) - line_start))):
+            if text[line_start + index] != " ":
+                break
+            removable += 1
+        if removable == 0 and line_start < len(text) and text[line_start] == "\t":
+            removable = 1
+        if removable == 0:
+            return
+        cursor.setPosition(line_start)
+        cursor.setPosition(line_start + removable, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.setPosition(max(line_start, position - removable))
+        self.setTextCursor(cursor)
 
     def insertFromMimeData(self, source: Any) -> None:  # noqa: N802 - Qt override name
         self.paste_blocked.emit()
@@ -188,10 +237,23 @@ class MainWindow(QMainWindow):
         self.typing_input = NoPastePlainTextEdit()
         self.typing_input.setFont(CODE_FONT)
         self.typing_input.setObjectName("InputBox")
-        self.typing_input.setPlaceholderText("첫 글자를 입력하는 순간 타이머가 시작됩니다.")
+        self.typing_input.setTabChangesFocus(False)
+        self.typing_input.setPlaceholderText(
+            "첫 글자를 입력하는 순간 타이머가 시작됩니다. Tab은 4칸, Ctrl+Enter는 제출입니다."
+        )
         self.typing_input.textChanged.connect(self._on_typing_changed)
         self.typing_input.backspace_pressed.connect(self._on_backspace)
         self.typing_input.paste_blocked.connect(self._show_paste_blocked)
+        self.typing_input.submit_requested.connect(self._submit_attempt)
+
+        self.submit_button = QPushButton("제출하기 (Ctrl+Enter)")
+        self.submit_button.setObjectName("PrimaryButton")
+        self.submit_button.clicked.connect(self._submit_attempt)
+        self.submit_shortcuts = []
+        for sequence in ["Ctrl+Return", "Ctrl+Enter"]:
+            shortcut = QShortcut(QKeySequence(sequence), self.typing_input)
+            shortcut.activated.connect(self._submit_attempt)
+            self.submit_shortcuts.append(shortcut)
 
         self.accuracy_label = QLabel("정확도 100.00%")
         self.typo_label = QLabel("오타 0")
@@ -205,6 +267,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.accuracy_label, 4, 0)
         root.addWidget(self.typo_label, 4, 1)
         root.addWidget(self.backspace_label, 4, 2)
+        root.addWidget(self.submit_button, 5, 2)
         return page
 
     def _build_result_page(self) -> QWidget:
@@ -386,6 +449,7 @@ class MainWindow(QMainWindow):
         self.code_view.setPlainText(self.current_snippet.code)
         self.typing_input.setPlainText("")
         self.typing_input.setEnabled(True)
+        self.submit_button.setEnabled(True)
         self.timer_label.setText("00.0s")
         self.progress.setValue(0)
         self.accuracy_label.setText("정확도 100.00%")
@@ -420,8 +484,34 @@ class MainWindow(QMainWindow):
         self.accuracy_label.setText(f"정확도 {accuracy:.2f}%")
         progress = 0 if not expected else min(100, int((len(typed) / len(expected)) * 100))
         self.progress.setValue(progress)
-        if typed == expected:
+        if is_submission_complete(expected, typed):
             self._finish_attempt()
+
+    def _submit_attempt(self) -> None:
+        if self.finished or self.current_snippet is None:
+            return
+        expected = self.current_snippet.code
+        typed = self.typing_input.toPlainText()
+        if is_submission_complete(expected, typed):
+            self._finish_attempt()
+            return
+        self.statusBar().showMessage(self._submission_hint(expected, typed), 3500)
+
+    def _submission_hint(self, expected: str, typed: str) -> str:
+        normalized_expected = normalize_newlines(expected)
+        normalized_typed = submission_text_for_comparison(typed)
+        if len(normalized_typed) < len(normalized_expected):
+            remaining = len(normalized_expected) - len(normalized_typed)
+            return f"아직 {remaining}글자가 남았습니다. 공백과 줄바꿈까지 똑같이 입력해주세요."
+        for index, (expected_ch, typed_ch) in enumerate(zip(normalized_expected, normalized_typed)):
+            if expected_ch != typed_ch:
+                line = normalized_typed.count("\n", 0, index) + 1
+                line_start = normalized_typed.rfind("\n", 0, index) + 1
+                column = index - line_start + 1
+                return f"{line}줄 {column}칸이 목표 코드와 다릅니다. 공백/대소문자/기호를 확인해주세요."
+        if len(normalized_typed) > len(normalized_expected):
+            return f"목표보다 {len(normalized_typed) - len(normalized_expected)}글자가 더 입력되었습니다."
+        return "목표 코드와 아직 일치하지 않습니다."
 
     def _finish_attempt(self) -> None:
         if self.current_snippet is None:
@@ -429,11 +519,12 @@ class MainWindow(QMainWindow):
         self.finished = True
         self.timer.stop()
         self.typing_input.setEnabled(False)
+        self.submit_button.setEnabled(False)
         now = time.monotonic()
         started = self.started_at or now
         duration_ms = max(0, int((now - started) * 1000))
         expected = self.current_snippet.code
-        typed = self.typing_input.toPlainText()
+        typed = submission_text_for_comparison(self.typing_input.toPlainText())
         accuracy = calculate_accuracy(expected, typed)
         typo_count = count_positional_typos(expected, typed)
         score = calculate_score(
