@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+
+# Build outputs
+build/
+dist/
+*.spec
+/apps/macos/
+/apps/windows/
+
+# Runtime data / exports
+/data/*.sqlite
+/data/*.sqlite-*
+/data/*.lock
+/exports/*
+/backups/*
+
+# Keep runtime directories trackable later if needed
+!/data/.gitkeep
+!/exports/.gitkeep
+!/backups/.gitkeep

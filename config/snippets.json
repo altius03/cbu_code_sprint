@@ -1,0 +1,107 @@
+[
+  {
+    "id": "python-001",
+    "language": "Python",
+    "title": "Hello CBU",
+    "difficulty": "intro",
+    "code": "def hello_cbu(name):\n    print(f\"Hello, {name}!\")\n\nhello_cbu(\"CBU\")"
+  },
+  {
+    "id": "python-002",
+    "language": "Python",
+    "title": "Score Bonus",
+    "difficulty": "intro",
+    "code": "scores = [80, 95, 100]\nbonus = sum(score >= 90 for score in scores)\nprint(bonus)"
+  },
+  {
+    "id": "python-003",
+    "language": "Python",
+    "title": "Owl Loop",
+    "difficulty": "intro",
+    "code": "for step in range(1, 4):\n    print(f\"owl sprint {step}\")"
+  },
+  {
+    "id": "c-001",
+    "language": "C",
+    "title": "Hello CBU",
+    "difficulty": "v1",
+    "code": "#include <stdio.h>\n\nint main(void) {\n    printf(\"Hello, CBU!\\n\");\n    return 0;\n}"
+  },
+  {
+    "id": "c-002",
+    "language": "C",
+    "title": "Sum Loop",
+    "difficulty": "v1",
+    "code": "int total = 0;\nfor (int i = 1; i <= 5; i++) {\n    total += i;\n}"
+  },
+  {
+    "id": "c-003",
+    "language": "C",
+    "title": "Max Function",
+    "difficulty": "v1",
+    "code": "int max_score(int a, int b) {\n    return a > b ? a : b;\n}"
+  },
+  {
+    "id": "cpp-001",
+    "language": "C++",
+    "title": "Hello CBU",
+    "difficulty": "v1",
+    "code": "#include <iostream>\n\nint main() {\n    std::cout << \"Hello, CBU!\" << std::endl;\n}"
+  },
+  {
+    "id": "cpp-002",
+    "language": "C++",
+    "title": "Vector Sum",
+    "difficulty": "v1",
+    "code": "std::vector<int> scores{80, 90, 100};\nint total = 0;\nfor (int score : scores) total += score;"
+  },
+  {
+    "id": "cpp-003",
+    "language": "C++",
+    "title": "String Greeting",
+    "difficulty": "v1",
+    "code": "std::string club = \"CBU\";\nstd::cout << \"Welcome, \" << club << \"!\";"
+  },
+  {
+    "id": "java-001",
+    "language": "Java",
+    "title": "Hello CBU",
+    "difficulty": "v1",
+    "code": "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, CBU!\");\n    }\n}"
+  },
+  {
+    "id": "java-002",
+    "language": "Java",
+    "title": "Score Check",
+    "difficulty": "v1",
+    "code": "int score = 95;\nif (score >= 90) {\n    System.out.println(\"high score\");\n}"
+  },
+  {
+    "id": "java-003",
+    "language": "Java",
+    "title": "Method",
+    "difficulty": "v1",
+    "code": "static int add(int a, int b) {\n    return a + b;\n}"
+  },
+  {
+    "id": "javascript-001",
+    "language": "JavaScript",
+    "title": "Hello CBU",
+    "difficulty": "v1",
+    "code": "function hello(name) {\n  console.log(`Hello, ${name}!`);\n}\nhello('CBU');"
+  },
+  {
+    "id": "javascript-002",
+    "language": "JavaScript",
+    "title": "Filter Scores",
+    "difficulty": "v1",
+    "code": "const scores = [70, 90, 100];\nconst passed = scores.filter(score => score >= 80);"
+  },
+  {
+    "id": "javascript-003",
+    "language": "JavaScript",
+    "title": "Arrow Function",
+    "difficulty": "v1",
+    "code": "const double = value => value * 2;\nconsole.log(double(21));"
+  }
+]

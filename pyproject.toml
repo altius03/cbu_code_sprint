@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cbu-code-sprint"
+version = "0.1.0"
+description = "Portable PySide6 code typing game for CBU club promotion booths"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pyinstaller>=6.0",
+]
+
+[project.scripts]
+cbu-code-sprint = "cbu_code_sprint.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cbu_code_sprint"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["src", "tests"]
