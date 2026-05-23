@@ -64,6 +64,41 @@ class GuiAdminTests(unittest.TestCase):
                 window.close()
                 window.deleteLater()
 
+    def test_game_completion_updates_result_rank_summary(self) -> None:
+        assert MainWindow is not None
+        assert AppPaths is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = AppPaths.from_home(Path(tmp))
+            paths.ensure_directories()
+            paths.snippets.write_text(
+                """[
+                  {
+                    "id": "python-test",
+                    "language": "Python",
+                    "title": "Tiny",
+                    "code": "print('CBU')"
+                  }
+                ]""",
+                encoding="utf-8",
+            )
+            window = MainWindow(paths)
+            try:
+                window.name_input.setText("홍길동")
+                window.phone_input.setText("010-1111-2222")
+                window.language_input.setCurrentText("Python")
+
+                window._start_game()
+                window.typing_input.setPlainText("print('CBU')")
+                self.app.processEvents()
+
+                self.assertGreaterEqual(window.last_score, 1090)
+                self.assertTrue(window.result_score_label.text().endswith("점"))
+                self.assertIn("전체: 1위", window.result_rank_label.text())
+                self.assertEqual(window.db.public_leaderboard(limit=10)[0]["display_name"], "홍*동")
+            finally:
+                window.close()
+                window.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()

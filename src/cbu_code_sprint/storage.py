@@ -3,11 +3,14 @@ from __future__ import annotations
 import csv
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from .privacy import mask_name, normalize_phone
+
+CSV_DANGEROUS_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS participants (
@@ -55,7 +58,7 @@ class Database:
         return connection
 
     def initialize(self) -> None:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             connection.executescript(SCHEMA_SQL)
             connection.commit()
 
@@ -91,7 +94,7 @@ class Database:
             raise ValueError("event_date is required")
 
         now = datetime.now().isoformat(timespec="seconds")
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             existing = connection.execute(
                 "SELECT id FROM participants WHERE phone_normalized = ?",
                 (phone_normalized,),
@@ -190,9 +193,73 @@ class Database:
         LIMIT ?
         """
         params.append(limit)
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             rows = connection.execute(sql, params).fetchall()
         return [self._public_row(rank=index + 1, row=row) for index, row in enumerate(rows)]
+
+    def leaderboard_position(
+        self,
+        phone: str,
+        *,
+        event_date: str | None = None,
+        language: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the public leaderboard row for a participant's best scoped attempt."""
+
+        phone_normalized = normalize_phone(phone)
+        if not phone_normalized:
+            return None
+
+        where: list[str] = []
+        params: list[Any] = []
+        if event_date:
+            where.append("a.event_date = ?")
+            params.append(event_date)
+        if language:
+            where.append("a.language = ?")
+            params.append(language)
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+        sql = f"""
+        WITH ranked_attempts AS (
+            SELECT
+                p.phone_normalized,
+                p.name,
+                p.main_language,
+                a.event_date,
+                a.language,
+                a.snippet_id,
+                a.duration_ms,
+                a.accuracy,
+                a.typo_count,
+                a.backspace_count,
+                a.score,
+                a.created_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY p.phone_normalized
+                    ORDER BY a.score DESC, a.accuracy DESC, a.duration_ms ASC, a.created_at ASC
+                ) AS personal_rank
+            FROM attempts a
+            JOIN participants p ON p.id = a.participant_id
+            {where_sql}
+        ),
+        leaders AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    ORDER BY score DESC, accuracy DESC, duration_ms ASC, created_at ASC
+                ) AS leaderboard_rank
+            FROM ranked_attempts
+            WHERE personal_rank = 1
+        )
+        SELECT * FROM leaders
+        WHERE phone_normalized = ?
+        """
+        params.append(phone_normalized)
+        with closing(self.connect()) as connection:
+            row = connection.execute(sql, params).fetchone()
+        if row is None:
+            return None
+        return self._public_row(rank=int(row["leaderboard_rank"]), row=row)
 
     def participants(self) -> list[dict[str, Any]]:
         sql = """
@@ -210,7 +277,7 @@ class Database:
         GROUP BY p.id, p.name, p.phone, p.phone_normalized, p.main_language, p.created_at
         ORDER BY p.created_at DESC, p.id DESC
         """
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             rows = connection.execute(sql).fetchall()
         return [
             {
@@ -239,12 +306,12 @@ class Database:
         {where}
         ORDER BY a.created_at DESC, a.id DESC
         """
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             return [dict(row) for row in connection.execute(sql, params).fetchall()]
 
     def stats(self, *, event_date: str | None = None) -> dict[str, int | str]:
         target_date = event_date or date.today().isoformat()
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             participants_total = connection.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
             attempts_total = connection.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
             participants_today = connection.execute(
@@ -304,7 +371,7 @@ class Database:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
-                writer.writerow({field: row[field] for field in fieldnames})
+                writer.writerow({field: _csv_safe(row[field]) for field in fieldnames})
         return destination
 
     def export_all_attempts_csv(self, exports_dir: str | Path, *, event_date: str | None = None) -> Path:
@@ -331,14 +398,14 @@ class Database:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
-                writer.writerow({field: row[field] for field in fieldnames})
+                writer.writerow({field: _csv_safe(row[field]) for field in fieldnames})
         return destination
 
     def delete_attempts_for_date(self, event_date: str) -> dict[str, int]:
         clean_event_date = event_date.strip()
         if not clean_event_date:
             raise ValueError("event_date is required")
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             attempts_deleted = connection.execute(
                 "DELETE FROM attempts WHERE event_date = ?",
                 (clean_event_date,),
@@ -353,7 +420,7 @@ class Database:
     def reset_leaderboard(self) -> dict[str, int]:
         """Delete all attempts while keeping participant contact records for admin follow-up."""
 
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             attempts_deleted = connection.execute("DELETE FROM attempts").rowcount
             connection.commit()
         return {"attempts_deleted": int(attempts_deleted)}
@@ -361,7 +428,7 @@ class Database:
     def anonymize_personal_data(self) -> dict[str, int]:
         """Remove names/phones while preserving attempt rows for aggregate records."""
 
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             rows = connection.execute("SELECT id FROM participants ORDER BY id").fetchall()
             for row in rows:
                 participant_id = int(row["id"])
@@ -377,7 +444,7 @@ class Database:
         return {"participants_anonymized": len(rows)}
 
     def delete_all_data(self) -> dict[str, int]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             attempts_deleted = connection.execute("DELETE FROM attempts").rowcount
             participants_deleted = connection.execute("DELETE FROM participants").rowcount
             connection.commit()
@@ -421,3 +488,11 @@ def _event_date_label(event_date: str) -> str:
     if len(parts) == 3:
         return f"{parts[1]}/{parts[2]}"
     return event_date
+
+
+def _csv_safe(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if value.lstrip(" ").startswith(CSV_DANGEROUS_PREFIXES):
+        return "'" + value
+    return value

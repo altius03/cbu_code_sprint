@@ -186,6 +186,59 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual([row["language"] for row in c_rows], ["C"])
         self.assertEqual(c_rows[0]["score"], 820)
 
+    def test_leaderboard_position_returns_deduped_rank_for_participant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = AppPaths.from_home(Path(tmp))
+            paths.ensure_directories()
+            db = Database(paths.database)
+            db.initialize()
+
+            db.record_attempt("홍길동", "010-1111-2222", "Python", "2026-05-21", "Python", "python-001", 40_000, 95.0, 2, 1, 700)
+            db.record_attempt("홍길동", "01011112222", "Python", "2026-05-21", "Python", "python-002", 20_000, 100.0, 0, 0, 940)
+            db.record_attempt("Alex", "010-3333-4444", "JavaScript", "2026-05-21", "JavaScript", "javascript-001", 18_000, 100.0, 0, 0, 960)
+
+            position = db.leaderboard_position("010 1111 2222")
+            python_position = db.leaderboard_position("010 1111 2222", language="Python")
+
+        self.assertIsNotNone(position)
+        self.assertEqual(position["rank"], 2)
+        self.assertEqual(position["score"], 940)
+        self.assertIsNotNone(python_position)
+        self.assertEqual(python_position["rank"], 1)
+
+    def test_csv_export_escapes_spreadsheet_formula_prefixes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = AppPaths.from_home(Path(tmp))
+            paths.ensure_directories()
+            db = Database(paths.database)
+            db.initialize()
+            db.record_attempt(
+                "=SUM(A1:A2)",
+                "+82 10-1111-2222",
+                "Python",
+                "2026-05-21",
+                "Python",
+                " =python-001",
+                10_000,
+                100.0,
+                0,
+                0,
+                1020,
+            )
+
+            all_csv = db.export_all_attempts_csv(paths.exports_dir, event_date="2026-05-21")
+            public_csv = db.export_public_leaderboard_csv(paths.exports_dir, event_date="2026-05-21")
+
+            with all_csv.open("r", encoding="utf-8-sig", newline="") as fh:
+                all_rows = list(csv.DictReader(fh))
+            with public_csv.open("r", encoding="utf-8-sig", newline="") as fh:
+                public_rows = list(csv.DictReader(fh))
+
+        self.assertEqual(all_rows[0]["name"], "'=SUM(A1:A2)")
+        self.assertEqual(all_rows[0]["phone"], "'+82 10-1111-2222")
+        self.assertEqual(all_rows[0]["snippet_id"], "' =python-001")
+        self.assertTrue(public_rows[0]["display_name"].startswith("'="))
+
     def test_stats_backup_and_csv_export_are_usb_home_relative(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = AppPaths.from_home(Path(tmp))

@@ -24,7 +24,9 @@
 - USB DB 보호용 단일 인스턴스 lock
 - 점수 계산, 이름 마스킹, 전화번호 정규화 유틸
 - 언어별 snippet 15개: `config/snippets.json`
-- PySide6 GUI v1: 시작/게임/결과/리더보드/관리자 기본 화면
+- PySide6 GUI: 시작/게임/결과/리더보드/관리자 화면, 실시간 입력 피드백, 결과 순위 표시
+- 공개/관리자 CSV export 보안 처리: 스프레드시트 수식 주입 방어
+- SQLite 연결 즉시 close 처리로 Windows USB 파일 잠금 완화
 - 시작 스크립트: `Start-Windows.bat`, `Start-macOS.command`
 
 ## 개발 실행
@@ -51,11 +53,19 @@ Start-Windows.bat
 ## 테스트
 
 현재 테스트는 PySide6 없이도 실행되는 core 로직 중심입니다.
+PySide6가 있으면 GUI 화면 생성과 게임 완료 흐름도 함께 검증합니다.
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v
 PYTHONPATH=src python3 -m compileall -q src tests
 ```
+
+출시 전 QA 권장:
+
+- 위 테스트 2개를 모두 실행합니다.
+- Windows/macOS 각각에서 시작 스크립트로 실행합니다.
+- 샘플 참가자 1명을 등록해 완주, 결과 순위, 리더보드, 관리자 화면 저장 여부를 확인합니다.
+- 관리자 화면에서 DB 백업과 공개 CSV export를 생성해 `backups/`, `exports/` 경로를 확인합니다.
 
 ## macOS 패키징
 
